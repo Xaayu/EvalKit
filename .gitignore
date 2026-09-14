@@ -1,0 +1,30 @@
+# Virtual environments
+.venv/
+.testenv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build/package
+build/
+dist/
+*.egg-info/
+
+# Generated EvalKit reports/history
+current.json
+previous.json
+evalkit_history.json
+evalkit_regression_history.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

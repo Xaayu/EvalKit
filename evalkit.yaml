@@ -1,0 +1,10 @@
+history_file: evalkit_history.json
+report_format: text
+thresholds:
+  accuracy: 0.02
+rules:
+  accuracy:
+    min: 0.0
+  precision: 0.02
+  recall: 0.02
+  f1: 0.02
