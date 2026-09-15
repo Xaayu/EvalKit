@@ -2,8 +2,8 @@
 
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue)](.github/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](pyproject.toml)
-[![Version](https://img.shields.io/badge/version-0.1.0-informational)](pyproject.toml)
-[![License](https://img.shields.io/badge/license-not%20specified-lightgrey)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.1.1-informational)](pyproject.toml)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **A lightweight, production-focused evaluation and monitoring toolkit for scikit-learn models.**
 
@@ -35,6 +35,12 @@ EvalKit turns that into a repeatable engineering workflow:
 ---
 
 ## Installation
+
+### From PyPI
+
+```powershell
+python -m pip install evalkit-ml
+```
 
 ### From source
 
@@ -480,7 +486,7 @@ Edge cases                 ✓
 
 ## License
 
-Add your project license here.
+EvalKit is released under the [MIT License](LICENSE).
 
 ---
 
