@@ -45,12 +45,17 @@ def parse_thresholds(values):
     thresholds = {}
 
     for value in values:
+        raw_value = str(value).strip()
         try:
-            metric, threshold = value.split("=", 1)
+            metric, threshold = raw_value.split("=", 1)
+            metric = metric.strip()
+            threshold = threshold.strip()
+            if not metric or not threshold:
+                raise ValueError
             thresholds[metric] = float(threshold)
         except ValueError as error:
             raise argparse.ArgumentTypeError(
-                "thresholds must use METRIC=VALUE format"
+                "thresholds must use METRIC=VALUE format, for example: accuracy=0.80"
             ) from error
 
     return thresholds

@@ -50,8 +50,27 @@ def calculate_psi(expected, actual, bins=10):
         (actual_pct - expected_pct)
         * np.log(actual_pct / expected_pct)
     )
+    
+    
 
     return float(psi)
+
+
+def _numeric_series_with_missing(series):
+    """Convert a series to numeric and treat invalid values as missing."""
+    converted = pd.to_numeric(series, errors="coerce")
+    return converted
+
+
+def _numeric_drift_severity(psi_value, threshold):
+    """Map PSI magnitude to a human-readable severity label."""
+    if psi_value < threshold:
+        return "none"
+    if psi_value >= threshold * 3:
+        return "severe"
+    if psi_value >= threshold * 1.5:
+        return "high"
+    return "moderate"
 
 
 def detect_numeric_drift(
@@ -74,44 +93,63 @@ def detect_numeric_drift(
     )
 
     for column in common_columns:
+        ref_series = _numeric_series_with_missing(reference[column])
+        cur_series = _numeric_series_with_missing(current[column])
 
         if not (
-            pd.api.types.is_numeric_dtype(
-                reference[column]
-            )
+            pd.api.types.is_numeric_dtype(ref_series)
             and
-            pd.api.types.is_numeric_dtype(
-                current[column]
-            )
+            pd.api.types.is_numeric_dtype(cur_series)
         ):
             continue
 
-        reference_values = reference[column].dropna()
-        current_values = current[column].dropna()
+        reference_missing = int(ref_series.isna().sum())
+        current_missing = int(cur_series.isna().sum())
+
+        reference_values = ref_series.dropna()
+        current_values = cur_series.dropna()
 
         if len(reference_values) == 0 or len(current_values) == 0:
-            continue
-
-        psi = calculate_psi(
-            reference_values,
-            current_values
-        )
-        ks_statistic, ks_pvalue = ks_2samp(
-            reference_values,
-            current_values
-        )
-
-        if psi >= threshold:
-            status = "drifted"
-        else:
+            psi = 0.0
             status = "stable"
+            severity = "none"
+            ks_statistic = 0.0
+            ks_pvalue = 1.0
+            reference_mean = None
+            current_mean = None
+            reference_std = 0.0
+            current_std = 0.0
+        else:
+            psi = calculate_psi(
+                reference_values,
+                current_values
+            )
+            ks_statistic, ks_pvalue = ks_2samp(
+                reference_values,
+                current_values
+            )
+            status = "drifted" if psi >= threshold else "stable"
+            severity = _numeric_drift_severity(psi, threshold)
+            reference_mean = float(reference_values.mean())
+            current_mean = float(current_values.mean())
+            reference_std = float(reference_values.std(ddof=0)) if len(reference_values) > 1 else 0.0
+            current_std = float(current_values.std(ddof=0)) if len(current_values) > 1 else 0.0
 
         results[column] = {
-            "psi": psi,
+            "psi": float(psi),
             "ks_statistic": float(ks_statistic),
             "ks_pvalue": float(ks_pvalue),
             "threshold": threshold,
-            "status": status
+            "status": status,
+            "severity": severity,
+            "reference_mean": reference_mean,
+            "current_mean": current_mean,
+            "reference_std": float(reference_std),
+            "current_std": float(current_std),
+            "reference_missing": reference_missing,
+            "current_missing": current_missing,
+            "reference_count": int(len(reference_values)),
+            "current_count": int(len(current_values)),
         }
 
     return results
@@ -234,7 +272,24 @@ def detect_drift(
         threshold=threshold
     )
 
+    drifted_features = sorted([
+        name for name, result in numeric_results.items() if result.get("status") == "drifted"
+    ] + [
+        name for name, result in categorical_results.items() if result.get("status") == "drifted"
+    ])
+    stable_features = sorted([
+        name for name, result in numeric_results.items() if result.get("status") == "stable"
+    ] + [
+        name for name, result in categorical_results.items() if result.get("status") == "stable"
+    ])
+
     return {
         "numeric": numeric_results,
-        "categorical": categorical_results
+        "categorical": categorical_results,
+        "summary": {
+            "total_features": len(drifted_features) + len(stable_features),
+            "drifted_features": drifted_features,
+            "stable_features": stable_features,
+        },
     }
+    

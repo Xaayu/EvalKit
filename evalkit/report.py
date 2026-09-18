@@ -21,6 +21,8 @@ class EvaluationReport:
     prediction_distribution: dict = None
     explainability: dict = None
     rule_results: dict = None
+    leakage_warnings: list = None
+    validation_warnings: list = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -43,6 +45,8 @@ class EvaluationReport:
             "prediction_distribution": self.prediction_distribution or {},
             "explainability": self.explainability or {},
             "rule_results": self.rule_results or {},
+            "leakage_warnings": self.leakage_warnings or [],
+            "validation_warnings": self.validation_warnings or [],
         }
 
     def to_json(self, indent=4):
@@ -51,7 +55,115 @@ class EvaluationReport:
             indent=indent
         )
 
+    def summary(self):
+        drift_block = self.drift or {}
+        numeric_drift = drift_block.get("numeric", {})
+        categorical_drift = drift_block.get("categorical", {})
+        drift_summary = drift_block.get("summary", {})
 
+        drifted = list(drift_summary.get("drifted_features", []))
+        stable = list(drift_summary.get("stable_features", []))
+
+        if not drifted and not stable:
+            for result in numeric_drift.values():
+                if result.get("status") == "drifted":
+                    drifted.append(result.get("column"))
+            for result in categorical_drift.values():
+                if result.get("status") == "drifted":
+                    drifted.append(result.get("column"))
+
+        rule_results = self.rule_results or {}
+        passed_rules = sum(1 for result in rule_results.values() if result.get("status") == "passed")
+        failed_rules = sum(1 for result in rule_results.values() if result.get("status") == "failed")
+
+        leakage_warnings = self.leakage_warnings or []
+        validation_warnings = self.validation_warnings or []
+
+        regression_summary = {"status": "no_previous_report", "results": {}}
+        if self.previous_report is not None:
+            from .comparator import ReportComparator
+
+            comparator = ReportComparator(self.previous_report, self.to_dict())
+            results = comparator.compare()
+            has_regression = any(
+                result.get("status") == "degraded"
+                for metric, result in results.items()
+                if metric != "_model_version"
+            )
+            regression_summary = {
+                "status": "regression_detected" if has_regression else "no_regression",
+                "results": results,
+                "degraded_metrics": [
+                    metric for metric, result in results.items()
+                    if metric != "_model_version" and result.get("status") == "degraded"
+                ],
+            }
+
+        return {
+            "model": self.model_name,
+            "model_version": self.model_version,
+            "run_id": self.run_id,
+            "timestamp": self.timestamp,
+            "metrics": self.metrics,
+            "drift_summary": {
+                "total_features": len(drifted) + len(stable),
+                "drifted_features": drifted,
+                "stable_features": stable,
+                "numeric_count": len(numeric_drift),
+                "categorical_count": len(categorical_drift),
+            },
+            "rule_summary": {
+                "total": len(rule_results),
+                "passed": passed_rules,
+                "failed": failed_rules,
+                "results": rule_results,
+            },
+            "leakage_summary": {
+                "warning_count": len(leakage_warnings),
+                "warnings": leakage_warnings,
+            },
+            "validation_summary": {
+                "warning_count": len(validation_warnings),
+                "warnings": validation_warnings,
+            },
+            "regression_summary": regression_summary,
+        }
+
+    def render_summary(self):
+        summary = self.summary()
+        lines = [
+            "========== EvalKit Summary ==========",
+            f"Model: {summary['model']}",
+            f"Model version: {summary['model_version']}",
+            f"Run ID: {summary['run_id']}",
+            "",
+            "Metrics:",
+        ]
+
+        for name, value in summary["metrics"].items():
+            lines.append(f"- {name}: {value}")
+
+        lines.extend([
+            "",
+            "Drift:",
+            f"- drifted_features: {summary['drift_summary']['drifted_features']}",
+            f"- stable_features: {summary['drift_summary']['stable_features']}",
+            "",
+            "Rules:",
+            f"- passed: {summary['rule_summary']['passed']}",
+            f"- failed: {summary['rule_summary']['failed']}",
+            "",
+            "Leakage:",
+            f"- warning_count: {summary['leakage_summary']['warning_count']}",
+            "",
+            "Validation:",
+            f"- warning_count: {summary['validation_summary']['warning_count']}",
+            "",
+            "Regression:",
+            f"- status: {summary['regression_summary']['status']}",
+            "====================================",
+        ])
+        return "\n".join(lines)
 
     def check_regression(self, thresholds=None):
         if self.previous_report is None:
@@ -201,6 +313,16 @@ class EvaluationReport:
 
             for name, value in self.diagnostics.items():
                 print(f"{name}: {value}")
+
+        if self.leakage_warnings:
+            print("\nLeakage Warnings:")
+            for warning in self.leakage_warnings:
+                print(f"- {warning}")
+
+        if self.validation_warnings:
+            print("\nValidation Warnings:")
+            for warning in self.validation_warnings:
+                print(f"- {warning}")
 
         if self.drift:
             print("\nData Drift:")

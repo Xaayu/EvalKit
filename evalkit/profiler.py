@@ -1,6 +1,5 @@
 import pandas as pd
 
-
 def profile_data(X):
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
@@ -13,3 +12,24 @@ def profile_data(X):
     }
 
     return profile
+
+def feature_analysis(X):
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(X)
+
+    features = {}
+
+    for column in X.columns:
+        series = X[column]
+
+        features[str(column)] = {
+            "dtype": str(series.dtype),
+            "missing": int(series.isna().sum()),
+            "missing_percentage": float(
+                series.isna().mean() * 100
+            ),
+            "unique_values": int(series.nunique(dropna=True)),
+            "constant": bool(series.nunique(dropna=True) <= 1),
+        }
+
+    return features

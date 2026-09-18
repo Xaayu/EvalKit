@@ -6,7 +6,6 @@ from sklearn.base import is_classifier
 from .versioning import generate_model_version
 from .evaluator import Evaluator
 from .profiler import profile_data
-from .diagnostics import classification_diagnostics
 from .report import EvaluationReport
 from .history import EvaluationHistory
 from .monitoring import (
@@ -14,6 +13,22 @@ from .monitoring import (
     feature_statistics,
     prediction_distribution,
 )
+from .diagnostics import (
+    classification_diagnostics,
+    per_class_metrics,
+    class_imbalance,
+    misclassified_samples,
+    regression_diagnostics,
+    detect_leakage,
+    validate_evaluation_inputs,
+)
+from .profiler import (
+    profile_data,
+    feature_analysis,
+)
+
+from sklearn.base import is_classifier, is_regressor
+
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +47,8 @@ class ModelTracker:
 
         self.train_profile = None
         self.test_profile = None
-        
+        self.test_data = None
+
         self.train_data = None
         self.drift_result = None
         
@@ -52,6 +68,7 @@ class ModelTracker:
         return self
 
     def predict(self, X):
+        self.test_data = X
         self.test_profile = profile_data(X)
         self.feature_monitoring = {
             "reference": feature_statistics(self.train_data),
@@ -73,24 +90,48 @@ class ModelTracker:
         return predictions
 
     def evaluate(self, y_true):
+        validation = validate_evaluation_inputs(
+            y_true,
+            self.last_predictions,
+            model=self.model,
+        )
 
         evaluator = Evaluator(self.model, metrics=self.metrics)
-        
 
         metrics = evaluator.evaluate(
             y_true,
             self.last_predictions
         )
 
-        diagnostics = {}
+        diagnostics = {
+            "validation_warnings": validation["warnings"],
+        }
 
         if is_classifier(self.model):
-
             diagnostics = classification_diagnostics(
                 y_true,
                 self.last_predictions
             )
 
+            diagnostics["per_class_metrics"] = per_class_metrics(
+                y_true,
+                self.last_predictions
+            )
+
+            diagnostics["class_imbalance"] = class_imbalance(
+                y_true
+            )
+
+            diagnostics["misclassified_samples"] = misclassified_samples(
+                y_true,
+                self.last_predictions
+            )
+
+        elif is_regressor(self.model):
+            diagnostics = regression_diagnostics(
+                y_true,
+                self.last_predictions
+            )
         performance = {
             "fit_time": self.fit_time,
             "prediction_time": self.predict_times[-1]
@@ -112,6 +153,14 @@ class ModelTracker:
             "test_missing":
                 self.test_profile["missing_values"],
         }
+        feature_monitoring = feature_analysis(
+            self.test_data
+        ) if self.test_data is not None else {}
+
+        leakage_report = detect_leakage(
+            self.test_data,
+            y_true,
+        ) if self.test_data is not None else {"warnings": [], "feature_risks": []}
 
         feature_names = getattr(self.train_data, "columns", None)
         explainability = {
@@ -128,31 +177,33 @@ class ModelTracker:
             ).latest()
 
         return EvaluationReport(
-        model_name=self.model.__class__.__name__,
-        metrics=metrics,
-        diagnostics=diagnostics,
-        data_profile=data_profile,
-        performance=performance,
-        previous_report=previous_report,
-        drift=self.drift_result,
-        model_version=self.model_version,
-        run_id=self.run_id,
-        model_metadata={
-            "class": self.model.__class__.__name__,
-            "parameters": self.model.get_params(),
-        },
-        dataset_metadata={
-            "training_rows": self.train_profile["rows"],
-            "training_columns": self.train_profile["columns"],
-            "test_rows": self.test_profile["rows"],
-            "test_columns": self.test_profile["columns"],
-        },
-        feature_monitoring=self.feature_monitoring,
-        prediction_distribution=prediction_distribution(
-            self.last_predictions
-        ),
-        explainability=explainability,
-)
+            model_name=self.model.__class__.__name__,
+            metrics=metrics,
+            diagnostics=diagnostics,
+            data_profile=data_profile,
+            performance=performance,
+            previous_report=previous_report,
+            drift=self.drift_result,
+            model_version=self.model_version,
+            run_id=self.run_id,
+            model_metadata={
+                "class": self.model.__class__.__name__,
+                "parameters": self.model.get_params(),
+            },
+            dataset_metadata={
+                "training_rows": self.train_profile["rows"],
+                "training_columns": self.train_profile["columns"],
+                "test_rows": self.test_profile["rows"],
+                "test_columns": self.test_profile["columns"],
+            },
+            feature_monitoring=self.feature_monitoring,
+            prediction_distribution=prediction_distribution(
+                self.last_predictions
+            ),
+            explainability=explainability,
+            leakage_warnings=leakage_report.get("warnings", []),
+            validation_warnings=validation["warnings"],
+        )
 
     def report(self, y_true):
 
